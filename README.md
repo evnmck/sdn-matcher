@@ -30,7 +30,7 @@ mvn test
 mvn spring-boot:run
 ```
 
-The automated suite contains 25 tests covering the confidence decision table, name normalization and threshold behavior, aliases, full/year/approximate DOB parsing, CSV loading, XML parser security, SDN caching and reload behavior, ordered bounded parallel execution, service orchestration, JSON responses, and `404` handling.
+The automated suite contains 31 tests covering the confidence decision table, name normalization and threshold behavior, aliases, full/year/approximate DOB parsing, CSV loading, XML parser security, SDN caching and reload behavior, conservative candidate selection and fallbacks, ordered bounded parallel execution, service orchestration, JSON responses, and `404` handling.
 
 Then call:
 
@@ -47,18 +47,21 @@ The service parses the SDN XML into an immutable in-memory snapshot and normaliz
 
 ### Bulk-screening strategy
 
-The supplied data requires approximately 970 million account-to-SDN entry evaluations (`50,000 × 19,393`), before accounting for aliases. Bulk processing uses a correctness-first pipeline:
+An exhaustive scan of the supplied data requires approximately 970 million account-to-SDN entry evaluations (`50,000 × 19,393`), before accounting for aliases. Bulk processing uses a conservative candidate-selection pipeline:
 
 1. Parse and cache the SDN XML as an immutable snapshot.
 2. Normalize every SDN primary name and alias once when that snapshot is built.
 3. Normalize each account name once when it is screened.
-4. Compare that account with every cached SDN primary name and alias using Jaro-Winkler.
-5. Apply the DOB and confidence rules after a name passes the `0.90` threshold.
-6. Process independent account batches through a dedicated bounded worker pool while preserving input order.
+4. Use a union of 50% trigram overlap, the top 128 trigram candidates, exact tokens, and four-character token prefixes to generate a broad candidate set.
+5. Fall back to every SDN entry for names shorter than six characters, names with fewer than three trigrams, or candidate sets smaller than eight entries.
+6. Evaluate every selected candidate with the required Jaro-Winkler algorithm and apply the DOB/confidence rules after a name passes the `0.90` threshold.
+7. Process independent account batches through a dedicated bounded worker pool while preserving input order.
 
-***Correctness decision: A trigram candidate index was prototyped and dramatically reduced the measured bulk runtime to approximately 16 seconds, but it could theoretically discard a transposed or otherwise misspelled name that would pass the required Jaro-Winkler threshold. For a sanctions-screening application, I chose to prioritize correctness and recall over speed, so trigram filtering was removed from the authoritative matching path.***
+***Correctness decision: Trigram candidate selection dramatically reduces runtime but can theoretically omit a transposed or otherwise misspelled name that would pass Jaro-Winkler. To reduce that risk while keeping bulk screening practical, the implementation unions several broad retrieval strategies and uses exhaustive fallbacks for short names and suspiciously sparse results. The final Jaro-Winkler and confidence rules remain unchanged.***
 
-Caching and pre-normalization were retained because they improve performance without changing which records are evaluated.
+Caching and pre-normalization avoid repeated parsing and text cleanup. Candidate selection is deliberately conservative, but unlike an exhaustive scan it cannot provide a mathematical guarantee of identical recall; production use would require recall testing against labeled and adversarial name variants.
+
+On the development machine, a complete 50,000-account request returned 50,000 JSON results in 37.0 seconds from a cold application and 35.2 seconds with the parsed SDN snapshot and candidate index warm. The two responses were byte-for-byte identical. These figures are local measurements rather than service-level guarantees.
 
 The endpoint remains synchronous and returns the requested JSON array. Bulk accounts are partitioned into at most `availableProcessors - 1` batches and processed by a dedicated fixed-size executor. This parallelizes independent account work without pruning SDN candidates or changing matching semantics, while reserving one processor for the operating system and web server. Results are flattened in original account order. A background-job API was not added because it would change the required immediate response contract and introduce job storage, status, failure, expiration, and polling behavior.
 
@@ -74,7 +77,7 @@ For production, I would preserve exhaustive matching as the correctness-first de
 - Partition large submissions and process partitions concurrently with bounded workers sized to available CPU and downstream capacity.
 - Move large batches to asynchronous background jobs backed by a durable queue, returning a job ID with status and result endpoints; keep the synchronous endpoint for small requests.
 - Cache immutable normalized SDN data and, where appropriate, screening results keyed by the account inputs and SDN-list version so a new list safely invalidates stale results.
-- Consider PostgreSQL trigram indexes or OpenSearch for candidate retrieval only after measuring recall against representative misspellings. The exhaustive path should remain available when correctness requirements do not permit candidate pruning.
+- Implement the same conservative candidate retrieval with PostgreSQL trigram indexes or OpenSearch, and measure recall against representative misspellings before setting production thresholds. The exhaustive path should remain available when correctness requirements do not permit candidate pruning.
 - Use Lambda for infrequent, bounded internal workloads, or containerized workers such as ECS/Fargate for sustained traffic, larger batches, and predictable resource control.
 - Use a relational or search-oriented datastore for sanctions lookup; a key-value store such as DynamoDB may be useful for job state, idempotency records, and high-volume keyed access rather than fuzzy-name search itself.
 - Add retries, dead-letter handling, idempotency, audit trails, metrics, alerts, encryption, access controls, and explicit retention policies for sensitive applicant data.
@@ -87,16 +90,17 @@ I used OpenAI Codex as a development assistant. It initially inspected the asses
 
 I also asked Codex to clarify the supplied account and OFAC data schemas and to validate the downloaded XML against the parser assumptions. That review identified the standard OFAC `<aka>` alias structure and the mix of full, year-only, and approximate birth dates; the parser and documentation were updated accordingly.
 
-During performance review, I directed Codex to first cache and normalize the SDN data, test that change, then add indexing and retest. My proposed strategy was to use a cheap first pass to identify the lowest-distance or closest potential matches and perform the more expensive comparison only on that reduced group. Codex translated that direction into a trigram candidate-index prototype and helped benchmark it. I then prioritized correctness over speed because an index threshold could omit a name that would pass the assignment's required Jaro-Winkler comparison, particularly in a sanctions-screening context. I directed Codex to remove candidate filtering from the authoritative path while retaining correctness-preserving caching and normalization. After the exhaustive sequential bulk benchmark exceeded 60 seconds, I chose bounded account-level parallelism because it improves throughput without excluding any SDN records or changing the required synchronous API.
+During performance review, I directed Codex to first cache and normalize the SDN data, test that change, then add indexing and retest. My proposed strategy was to use a cheap first pass to identify the lowest-distance or closest potential matches and perform the more expensive comparison only on that reduced group. Codex translated that direction into a trigram candidate-index prototype and helped benchmark it. I initially removed candidate filtering because a hard index threshold could omit a name that would pass the assignment's required Jaro-Winkler comparison. When exhaustive bulk execution proved impractically slow, I chose a conservative hybrid: low-threshold and top-N trigram retrieval combined with token and prefix routes, plus exhaustive fallbacks for short names and sparse candidate sets. I also retained bounded account-level parallelism and documented that production adoption would require measured recall.
 
-I reviewed the test cases, one corrected threshold assumption, the caching, indexing, and parallelism tradeoffs, and the benchmark results. The final 25-test suite passes, and I reviewed the final implementation and remain responsible for its design choices and behavior.
+I reviewed the test cases, one corrected threshold assumption, the caching, indexing, and parallelism tradeoffs, and the benchmark results. The final 31-test suite passes, and I reviewed the final implementation and remain responsible for its design choices and behavior.
 
 ## Time spent
 
-Approximately 1.5 hours total:
+Approximately 2 hours total:
 
 - About 30 minutes reviewing the requirements, setting up the data, and scaffolding the application.
 - About 45 minutes testing and optimizing bulk processing, evaluating caching, indexing, and parallelism, and ultimately prioritizing matching correctness over the faster trigram approach.
 - About 15 minutes reviewing the implementation, improving documentation, and preparing the project for submission.
+- About 30 minutes implementing and testing the conservative hybrid candidate selector against the complete local dataset.
 
 The requested functionality is complete; no known required items were left unfinished.

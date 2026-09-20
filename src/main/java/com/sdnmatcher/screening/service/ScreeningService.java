@@ -16,13 +16,15 @@ public class ScreeningService {
     private final SdnRepository sdn;
     private final MatchingService matching;
     private final BulkScreeningExecutor bulkExecutor;
+    private final SdnCandidateSelector candidateSelector;
 
     public ScreeningService(AccountRepository accounts, SdnRepository sdn, MatchingService matching,
-                            BulkScreeningExecutor bulkExecutor) {
+                            BulkScreeningExecutor bulkExecutor, SdnCandidateSelector candidateSelector) {
         this.accounts = accounts;
         this.sdn = sdn;
         this.matching = matching;
         this.bulkExecutor = bulkExecutor;
+        this.candidateSelector = candidateSelector;
     }
 
     public List<ScreeningResult> screenAll() {
@@ -38,7 +40,7 @@ public class ScreeningService {
 
     private ScreeningResult screen(Account account, List<SdnEntry> entries) {
         String normalizedName = NameNormalizer.normalize(account.fullName());
-        List<MatchResult> matches = entries.stream()
+        List<MatchResult> matches = candidateSelector.select(normalizedName, entries).stream()
                 .map(entry -> matching.match(normalizedName, account.dateOfBirth(), entry))
                 .flatMap(java.util.Optional::stream)
                 .toList();

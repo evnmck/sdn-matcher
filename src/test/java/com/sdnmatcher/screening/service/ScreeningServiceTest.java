@@ -26,7 +26,8 @@ class ScreeningServiceTest {
     private final SdnRepository sdn = mock(SdnRepository.class);
     private final MatchingService matching = mock(MatchingService.class);
     private final BulkScreeningExecutor bulkExecutor = new BulkScreeningExecutor(2);
-    private final ScreeningService service = new ScreeningService(accounts, sdn, matching, bulkExecutor);
+    private final ScreeningService service = new ScreeningService(
+            accounts, sdn, matching, bulkExecutor, new SdnCandidateSelector());
 
     @AfterEach
     void closeExecutor() {
