@@ -1,0 +1,7 @@
+target/
+.m2/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+data/sdn.xml

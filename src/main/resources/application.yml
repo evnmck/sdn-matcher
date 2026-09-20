@@ -1,0 +1,4 @@
+screening:
+  accounts-path: ${ACCOUNTS_PATH:data/accounts.csv}
+  sdn-path: ${SDN_PATH:data/sdn.xml}
+  name-threshold: 0.90
