@@ -66,6 +66,21 @@ The batch size is calculated as `ceil(accountCount / workerCount)`. For example,
 
 The XML parser disables DTD and external entity access. Full OFAC dates support exact-date and year matching. Values containing one unambiguous four-digit year (including year-only and approximate values) support year matching only; ranges containing multiple years are ignored.
 
+## Production scaling considerations
+
+For production, I would preserve exhaustive matching as the correctness-first default and scale the work around it rather than silently reducing recall:
+
+- Parse each published OFAC list once and persist a versioned, normalized snapshot in an indexed datastore instead of relying only on a single application's memory.
+- Partition large submissions and process partitions concurrently with bounded workers sized to available CPU and downstream capacity.
+- Move large batches to asynchronous background jobs backed by a durable queue, returning a job ID with status and result endpoints; keep the synchronous endpoint for small requests.
+- Cache immutable normalized SDN data and, where appropriate, screening results keyed by the account inputs and SDN-list version so a new list safely invalidates stale results.
+- Consider PostgreSQL trigram indexes or OpenSearch for candidate retrieval only after measuring recall against representative misspellings. The exhaustive path should remain available when correctness requirements do not permit candidate pruning.
+- Use Lambda for infrequent, bounded internal workloads, or containerized workers such as ECS/Fargate for sustained traffic, larger batches, and predictable resource control.
+- Use a relational or search-oriented datastore for sanctions lookup; a key-value store such as DynamoDB may be useful for job state, idempotency records, and high-volume keyed access rather than fuzzy-name search itself.
+- Add retries, dead-letter handling, idempotency, audit trails, metrics, alerts, encryption, access controls, and explicit retention policies for sensitive applicant data.
+
+This design allows horizontal worker scaling while keeping matching behavior deterministic, traceable, and tied to the exact SDN-list version used for each decision.
+
 ## AI usage
 
 I used OpenAI Codex as a development assistant. It initially inspected the assessment and scaffolded the Spring Boot project, including the API, repositories, matching service, initial tests, and README. I then reviewed the generated implementation, added my own notes, and traced and explained the controller-to-service-to-repository-to-matching flow to verify that it behaved as intended.
