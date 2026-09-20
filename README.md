@@ -75,3 +75,13 @@ I also asked Codex to clarify the supplied account and OFAC data schemas and to 
 During performance review, I directed Codex to first cache and normalize the SDN data, test that change, then add indexing and retest. My proposed strategy was to use a cheap first pass to identify the lowest-distance or closest potential matches and perform the more expensive comparison only on that reduced group. Codex translated that direction into a trigram candidate-index prototype and helped benchmark it. I then prioritized correctness over speed because an index threshold could omit a name that would pass the assignment's required Jaro-Winkler comparison, particularly in a sanctions-screening context. I directed Codex to remove candidate filtering from the authoritative path while retaining correctness-preserving caching and normalization. After the exhaustive sequential bulk benchmark exceeded 60 seconds, I chose bounded account-level parallelism because it improves throughput without excluding any SDN records or changing the required synchronous API.
 
 I reviewed the test cases, one corrected threshold assumption, the caching, indexing, and parallelism tradeoffs, and the benchmark results. The final 25-test suite passes, and I reviewed the final implementation and remain responsible for its design choices and behavior.
+
+## Time spent
+
+Approximately 1.5 hours total:
+
+- About 30 minutes reviewing the requirements, setting up the data, and scaffolding the application.
+- About 45 minutes testing and optimizing bulk processing, evaluating caching, indexing, and parallelism, and ultimately prioritizing matching correctness over the faster trigram approach.
+- About 15 minutes reviewing the implementation, improving documentation, and preparing the project for submission.
+
+The requested functionality is complete; no known required items were left unfinished.
