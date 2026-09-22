@@ -102,5 +102,3 @@ Approximately 2 hours total:
 - About 45 minutes testing and optimizing bulk processing, evaluating caching, indexing, and parallelism, and ultimately prioritizing matching correctness over the faster trigram approach.
 - About 15 minutes reviewing the implementation, improving documentation, and preparing the project for submission.
 - About 30 minutes implementing and testing the conservative hybrid candidate selector against the complete local dataset.
-
-The requested functionality is complete; no known required items were left unfinished.
